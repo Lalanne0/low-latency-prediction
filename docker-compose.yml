@@ -1,0 +1,19 @@
+services:
+  predictor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: low-latency-predictor
+    ports:
+      - "8000:8000"
+    environment:
+      - DEFAULT_TICKER=AAPL
+      - PREDICTION_HORIZON=5
+      - LOG_LEVEL=info
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

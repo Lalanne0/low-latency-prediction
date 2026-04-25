@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Low-latency stock prediction — inference speed optimization demo. Not financial advice.">
+    <title>Low-Latency Predictor</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- TradingView Lightweight Charts -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <!-- ── Disclaimer Banner ──────────────────── -->
+    <div id="disclaimer-banner" class="disclaimer-banner">
+        <span class="disclaimer-icon">⚠️</span>
+        <span>This is a <strong>technical demonstration</strong> of inference-speed optimization. <strong>Not financial advice.</strong> Do not use for real trading decisions.</span>
+        <button id="dismiss-disclaimer" class="dismiss-btn" aria-label="Dismiss disclaimer">✕</button>
+    </div>
+
+    <!-- ── Alert Overlay ──────────────────────── -->
+    <div id="sell-alert" class="sell-alert hidden">
+        <div class="sell-alert-inner">
+            <div class="alert-pulse"></div>
+            <div class="alert-icon">🚨</div>
+            <h2>SELL SIGNAL DETECTED</h2>
+            <p>The model recommends selling. Signal changed from KEEP → SELL.</p>
+            <p class="alert-sub">Prediction confidence: <span id="alert-confidence">—</span></p>
+            <button id="dismiss-alert" class="btn btn-outline">Dismiss</button>
+        </div>
+    </div>
+
+    <!-- ── Header ─────────────────────────────── -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <span class="logo-icon">⚡</span>
+                <h1>Low-Latency Predictor</h1>
+            </div>
+            <span class="version-badge">v0.1.0</span>
+        </div>
+        <div class="header-center">
+            <nav class="tab-nav" role="tablist">
+                <button id="tab-live" class="tab active" role="tab" aria-selected="true" data-tab="live">
+                    <span class="tab-dot live-dot"></span> Live Trading
+                </button>
+                <button id="tab-demo" class="tab" role="tab" aria-selected="false" data-tab="demo">
+                    <span class="tab-dot demo-dot"></span> Demo Mode
+                </button>
+            </nav>
+        </div>
+        <div class="header-right">
+            <div class="ticker-selector" id="ticker-selector-live">
+                <label for="ticker-input">Ticker</label>
+                <div class="ticker-input-group">
+                    <input type="text" id="ticker-input" value="AAPL" maxlength="5" spellcheck="false" autocomplete="off">
+                    <button id="ticker-change-btn" class="btn btn-sm">Apply</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ── Main Content ───────────────────────── -->
+    <main class="main">
+        <!-- Live Mode Panel -->
+        <section id="panel-live" class="panel active" role="tabpanel">
+            <div class="layout">
+                <!-- Chart Area -->
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">
+                            <span id="chart-ticker-label" class="ticker-label">AAPL</span>
+                            <span id="chart-price" class="price">—</span>
+                            <span id="chart-change" class="change neutral">0.00%</span>
+                        </div>
+                        <div class="chart-meta">
+                            <span class="meta-item" title="Data refresh interval">🔄 ~1s</span>
+                        </div>
+                    </div>
+                    <div id="chart-live" class="chart"></div>
+                </div>
+
+                <!-- Prediction Sidebar -->
+                <aside class="sidebar">
+                    <!-- Signal Card -->
+                    <div class="card signal-card">
+                        <div class="card-label">MODEL SIGNAL</div>
+                        <div id="signal-live" class="signal keep">KEEP</div>
+                        <div class="confidence-bar-container">
+                            <div class="confidence-label">Confidence</div>
+                            <div class="confidence-bar">
+                                <div id="confidence-fill-live" class="confidence-fill" style="width: 0%"></div>
+                            </div>
+                            <div id="confidence-value-live" class="confidence-value">0%</div>
+                        </div>
+                    </div>
+
+                    <!-- Latency Card -->
+                    <div class="card latency-card">
+                        <div class="card-label">INFERENCE LATENCY</div>
+                        <div class="latency-display">
+                            <span id="latency-live" class="latency-value">—</span>
+                            <span class="latency-unit">μs</span>
+                        </div>
+                        <div class="latency-context">
+                            <div class="latency-bar">
+                                <div id="latency-bar-fill-live" class="latency-bar-fill"></div>
+                            </div>
+                            <span class="latency-target">Target: &lt;1000μs</span>
+                        </div>
+                    </div>
+
+                    <!-- Inference Mode Card -->
+                    <div class="card mode-card">
+                        <div class="card-label">INFERENCE BACKEND</div>
+                        <div class="mode-selector" id="mode-selector">
+                            <button class="mode-btn active" data-mode="sklearn" title="scikit-learn predict_proba (baseline)">
+                                <span class="mode-name">sklearn</span>
+                                <span class="mode-desc">Baseline</span>
+                            </button>
+                            <button class="mode-btn" data-mode="numpy" title="Raw NumPy dot product + sigmoid">
+                                <span class="mode-name">NumPy</span>
+                                <span class="mode-desc">Raw</span>
+                            </button>
+                            <button class="mode-btn" data-mode="numpy_fused" title="Fused scaler + float32">
+                                <span class="mode-name">Fused</span>
+                                <span class="mode-desc">f32</span>
+                            </button>
+                            <button class="mode-btn" data-mode="numba" title="Numba JIT compiled">
+                                <span class="mode-name">Numba</span>
+                                <span class="mode-desc">JIT</span>
+                            </button>
+                        </div>
+                        <div id="mode-active-label" class="mode-active-label">Active: scikit-learn (baseline)</div>
+                    </div>
+
+                    <!-- Model Info Card -->
+                    <div class="card info-card">
+                        <div class="card-label">MODEL INFO</div>
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-key">Algorithm</span>
+                                <span class="info-val">Logistic Regression</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-key">Features</span>
+                                <span class="info-val">9 (NumPy)</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-key">Horizon</span>
+                                <span class="info-val">5 candles</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-key">Threshold</span>
+                                <span class="info-val">0.5% drop</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Status Card -->
+                    <div class="card status-card">
+                        <div class="card-label">CONNECTION</div>
+                        <div class="status-row">
+                            <span id="ws-status-live" class="status-indicator disconnected"></span>
+                            <span id="ws-status-text-live" class="status-text">Disconnected</span>
+                        </div>
+                        <div id="tick-count-live" class="tick-count">Ticks: 0</div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+
+        <!-- Demo Mode Panel -->
+        <section id="panel-demo" class="panel" role="tabpanel">
+            <div class="layout">
+                <!-- Chart Area -->
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">
+                            <span class="ticker-label demo-label">DEMO</span>
+                            <span id="chart-price-demo" class="price">—</span>
+                            <span id="chart-change-demo" class="change neutral">0.00%</span>
+                        </div>
+                        <div class="chart-meta">
+                            <span class="meta-item">🧪 Synthetic Data</span>
+                            <span class="meta-item" title="Tick interval">⏱ 200ms</span>
+                        </div>
+                    </div>
+                    <div id="chart-demo" class="chart"></div>
+                </div>
+
+                <!-- Demo Sidebar -->
+                <aside class="sidebar">
+                    <!-- Signal Card -->
+                    <div class="card signal-card">
+                        <div class="card-label">MODEL SIGNAL</div>
+                        <div id="signal-demo" class="signal keep">KEEP</div>
+                        <div class="confidence-bar-container">
+                            <div class="confidence-label">Confidence</div>
+                            <div class="confidence-bar">
+                                <div id="confidence-fill-demo" class="confidence-fill" style="width: 0%"></div>
+                            </div>
+                            <div id="confidence-value-demo" class="confidence-value">0%</div>
+                        </div>
+                    </div>
+
+                    <!-- Latency Card -->
+                    <div class="card latency-card">
+                        <div class="card-label">INFERENCE LATENCY</div>
+                        <div class="latency-display">
+                            <span id="latency-demo" class="latency-value">—</span>
+                            <span class="latency-unit">μs</span>
+                        </div>
+                        <div class="latency-context">
+                            <div class="latency-bar">
+                                <div id="latency-bar-fill-demo" class="latency-bar-fill"></div>
+                            </div>
+                            <span class="latency-target">Target: &lt;1000μs</span>
+                        </div>
+                    </div>
+
+                    <!-- Inference Mode Card (Demo) -->
+                    <div class="card mode-card">
+                        <div class="card-label">INFERENCE BACKEND</div>
+                        <div class="mode-selector" id="mode-selector-demo">
+                            <button class="mode-btn active" data-mode="sklearn" title="scikit-learn predict_proba (baseline)">
+                                <span class="mode-name">sklearn</span>
+                                <span class="mode-desc">Baseline</span>
+                            </button>
+                            <button class="mode-btn" data-mode="numpy" title="Raw NumPy dot product + sigmoid">
+                                <span class="mode-name">NumPy</span>
+                                <span class="mode-desc">Raw</span>
+                            </button>
+                            <button class="mode-btn" data-mode="numpy_fused" title="Fused scaler + float32">
+                                <span class="mode-name">Fused</span>
+                                <span class="mode-desc">f32</span>
+                            </button>
+                            <button class="mode-btn" data-mode="numba" title="Numba JIT compiled">
+                                <span class="mode-name">Numba</span>
+                                <span class="mode-desc">JIT</span>
+                            </button>
+                        </div>
+                        <div id="mode-active-label-demo" class="mode-active-label">Active: scikit-learn (baseline)</div>
+                    </div>
+
+                    <!-- Crash Button Card -->
+                    <div class="card crash-card">
+                        <div class="card-label">SIMULATION CONTROLS</div>
+                        <p class="crash-description">
+                            Trigger a simulated 20% stock crash and observe the model's
+                            reaction speed in real time.
+                        </p>
+                        <button id="crash-btn" class="btn btn-danger btn-lg">
+                            💥 Simulate Stock Crash
+                        </button>
+                        <button id="reset-demo-btn" class="btn btn-outline btn-sm" style="margin-top:0.75rem">
+                            🔄 Reset Demo
+                        </button>
+                    </div>
+
+                    <!-- Status Card -->
+                    <div class="card status-card">
+                        <div class="card-label">CONNECTION</div>
+                        <div class="status-row">
+                            <span id="ws-status-demo" class="status-indicator disconnected"></span>
+                            <span id="ws-status-text-demo" class="status-text">Disconnected</span>
+                        </div>
+                        <div id="tick-count-demo" class="tick-count">Ticks: 0</div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <!-- ── Footer ─────────────────────────────── -->
+    <footer class="footer">
+        <div class="footer-disclaimer">
+            <strong>⚠️ Disclaimer:</strong> This application is a <em>technical demonstration</em> of low-latency
+            inference optimization techniques. It uses a simplistic ML model on delayed market data and is
+            <strong>absolutely not suitable</strong> for making real financial decisions. The predictions shown
+            have no proven accuracy for actual market conditions. Use at your own risk. The developer assume
+            no liability for any financial losses.
+        </div>
+        <div class="footer-meta">
+            Built with FastAPI · scikit-learn · Lightweight Charts &nbsp;|&nbsp; Inference target: &lt;1ms
+        </div>
+    </footer>
+
+    <!-- ── Scripts ────────────────────────────── -->
+    <script src="/static/js/chart.js"></script>
+    <script src="/static/js/demo.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

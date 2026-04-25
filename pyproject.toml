@@ -1,0 +1,22 @@
+[project]
+name = "low-latency-prediction"
+version = "0.1.0"
+description = "Low-latency stock prediction app — inference speed optimization demo"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "websockets>=14.0",
+    "yfinance>=0.2.50",
+    "scikit-learn>=1.6",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "joblib>=1.4",
+    "numba>=0.61",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "httpx>=0.28"]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "httpx>=0.28"]
